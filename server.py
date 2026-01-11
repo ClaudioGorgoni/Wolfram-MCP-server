@@ -7,55 +7,14 @@ import time
 
 app = Flask(__name__)
 
-# Configuration - utilise WOLFRAM_API_KEY comme sur Render
 WOLFRAM_API_KEY = os.environ.get("WOLFRAM_API_KEY")
 PORT = os.environ.get("PORT", 10000)
 
-def query_wolfram(query, maxchars=6800):
-    """Fonction pour interroger Wolfram Alpha API"""
-    if not WOLFRAM_API_KEY:
-        return "Erreur: Clé API Wolfram non configurée (WOLFRAM_API_KEY manquante)"
-    
-    url = "https://www.wolframalpha.com/api/v1/llm-api"
-    params = {
-        'input': query,
-        'appid': WOLFRAM_API_KEY,
-        'maxchars': maxchars
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=30)
-        if response.status_code == 200:
-            result = response.text.strip()
-            if not result or "Wolfram Alpha did not understand your input" in result:
-                return "Wolfram Alpha n'a pas pu fournir une réponse claire. Essayez de reformuler votre question."
-            return result
-        elif response.status_code == 403:
-            return "Erreur d'authentification Wolfram. Vérifiez votre APP ID."
-        else:
-            return f"Erreur Wolfram (HTTP {response.status_code})"
-    except Exception as e:
-        return f"Erreur de connexion: {str(e)}"
-
-@app.route('/.well-known/mcp.json', methods=['GET'])
-def mcp_manifest():
-    """Manifest MCP pour Mistral Platform - URL ABSOLUE pour SSE"""
-    return jsonify({
-        "name": "wolfram-alpha",
-        "description": "Wolfram Alpha computational intelligence",
-        "version": "1.0.0",
-        "protocol_version": "2024-11-05",
-        "capabilities": {
-            "tools": {}
-        },
-        "endpoints": {
-            "mcp": {
-                "type": "sse",
-                # URL ABSOLUE - IMPORTANT pour Mistral
-                "url": "https://wolfram-mcp-server.onrender.com/sse"
-            }
-        }
-    })
+# Ajoutez cette fonction pour supporter /mcp ET /sse
+@app.route('/mcp', methods=['GET'])
+def mcp_sse():
+    """Endpoint MCP pour Mistral (support /mcp et /sse)"""
+    return sse()
 
 @app.route('/sse', methods=['GET'])
 def sse():
@@ -78,7 +37,7 @@ def sse():
                             },
                             'maxchars': {
                                 'type': 'integer',
-                                'description': 'Maximum characters in response (default: 6800)',
+                                'description': 'Maximum characters in response',
                                 'default': 6800
                             }
                         },
@@ -98,12 +57,30 @@ def sse():
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type'
+            'Connection': 'keep-alive'
         }
     )
 
+@app.route('/.well-known/mcp.json', methods=['GET'])
+def mcp_manifest():
+    """Manifest MCP - pointe vers /mcp pour compatibilité"""
+    return jsonify({
+        "name": "wolfram-alpha",
+        "description": "Wolfram Alpha computational intelligence",
+        "version": "1.0.0",
+        "protocol_version": "2024-11-05",
+        "capabilities": {
+            "tools": {}
+        },
+        "endpoints": {
+            "mcp": {
+                "type": "sse",
+                "url": "https://wolfram-mcp-server.onrender.com/mcp"
+            }
+        }
+    })
+
+# Gardez le reste de votre code (query_wolfram, /tools/call, etc.)
 @app.route('/tools/call', methods=['POST'])
 def tools_call():
     """Endpoint pour exécuter les outils"""
@@ -123,6 +100,7 @@ def tools_call():
                         'id': data.get('id')
                     })
                 
+                # Fonction query_wolfram à définir
                 maxchars = args.get('maxchars', 6800)
                 result = query_wolfram(query, maxchars)
                 
@@ -150,48 +128,37 @@ def tools_call():
             'id': data.get('id')
         })
 
+def query_wolfram(query, maxchars=6800):
+    """Fonction pour interroger Wolfram Alpha API"""
+    if not WOLFRAM_API_KEY:
+        return "Erreur: Clé API Wolfram non configurée"
+    
+    url = "https://www.wolframalpha.com/api/v1/llm-api"
+    params = {
+        'input': query,
+        'appid': WOLFRAM_API_KEY,
+        'maxchars': maxchars
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        if response.status_code == 200:
+            return response.text.strip()
+        else:
+            return f"Erreur Wolfram (HTTP {response.status_code})"
+    except Exception as e:
+        return f"Erreur de connexion: {str(e)}"
+
 @app.route('/health', methods=['GET'])
 def health():
-    """Endpoint de santé"""
     return jsonify({
         'status': 'healthy',
-        'service': 'wolfram-mcp-server',
-        'wolfram_configured': bool(WOLFRAM_API_KEY),
-        'app_id_prefix': WOLFRAM_API_KEY[:4] + '...' if WOLFRAM_API_KEY else None,
         'endpoints': {
-            'manifest': 'https://wolfram-mcp-server.onrender.com/.well-known/mcp.json',
+            'mcp_sse': 'https://wolfram-mcp-server.onrender.com/mcp',
             'sse': 'https://wolfram-mcp-server.onrender.com/sse',
             'tools': 'https://wolfram-mcp-server.onrender.com/tools/call'
         }
     })
 
-@app.route('/')
-def index():
-    """Page d'accueil"""
-    return jsonify({
-        'service': 'Wolfram Alpha MCP Server',
-        'version': '1.0',
-        'status': 'running',
-        'url': 'https://wolfram-mcp-server.onrender.com',
-        'usage': {
-            'mistral_platform': 'Use https://wolfram-mcp-server.onrender.com/.well-known/mcp.json as manifest URL',
-            'test_query': 'curl -X POST https://wolfram-mcp-server.onrender.com/tools/call -H "Content-Type: application/json" -d \'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"query_wolfram","arguments":{"query":"2+2"}},"id":1}\''
-        }
-    })
-
 if __name__ == '__main__':
-    print("=" * 60)
-    print("🚀 Wolfram Alpha MCP Server")
-    print("=" * 60)
-    print(f"📡 URL: https://wolfram-mcp-server.onrender.com")
-    print(f"🔌 Port: {PORT}")
-    
-    if WOLFRAM_API_KEY:
-        print(f"✅ WOLFRAM_API_KEY configurée: {WOLFRAM_API_KEY[:4]}...")
-        print(f"🔗 Manifest: https://wolfram-mcp-server.onrender.com/.well-known/mcp.json")
-    else:
-        print("❌ WOLFRAM_API_KEY non configurée!")
-        print("   Configurez la variable d'environnement sur Render")
-    
-    print("=" * 60)
     app.run(host='0.0.0.0', port=int(PORT), debug=False)
