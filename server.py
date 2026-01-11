@@ -10,6 +10,7 @@ app = Flask(__name__)
 
 # Configuration
 WOLFRAM_API_KEY = os.environ.get("WOLFRAM_API_KEY")
+MCP_API_KEY = os.environ.get("WOLFRAM_MCP_SECRET")
 PORT = int(os.environ.get("PORT", 8000))
 
 # Endpoint de l'API LLM de Wolfram
@@ -219,6 +220,29 @@ def internal_error(error):
         "error": "Erreur interne du serveur",
         "message": str(error)
     }), 500
+
+@app.route('/.well-known/mcp.json', methods=['GET'])
+def mcp_manifest():
+    return jsonify({
+        "name": "wolfram",
+        "version": "1.0",
+        "description": "Wolfram Alpha via MCP",
+        "tools": [
+            {
+                "name": "query_wolfram",
+                "description": "Query Wolfram Alpha via LLM API",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" },
+                        "maxchars": { "type": "integer", "default": 6800 }
+                    },
+                    "required": ["query"]
+                }
+            }
+        ]
+    })
+
 
 if __name__ == '__main__':
     print("=" * 50)
