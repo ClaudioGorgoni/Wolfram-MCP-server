@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: wolfram-mcp
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    envVars:
+      - key: WOLFRAM_APP_ID
+        value: YOUR-APP-ID-HERE  # Remplace par ton vrai APP ID
+      - key: PORT
+        value: 10000
+    plan: free
