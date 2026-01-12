@@ -1,34 +1,41 @@
 import os
-import time
 import json
+import time
+import requests
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app) # Autorise Mistral à communiquer avec Render
+CORS(app) # Autorise Mistral à se connecter
+
+WOLFRAM_API_KEY = os.environ.get("WOLFRAM_API_KEY")
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "ok", "key_configured": bool(WOLFRAM_API_KEY)})
 
 @app.route('/sse')
 def sse():
     def generate():
-        # 1. On récupère l'URL de base (ex: https://wolfram-mcp-server.onrender.com)
-        host = request.url_root.rstrip('/')
-        # 2. On envoie l'événement 'endpoint' (INDISPENSABLE pour Mistral)
-        yield f"event: endpoint\ndata: {host}/messages\n\n"
+        # IMPORTANT : On dit à Mistral où envoyer les messages POST
+        root_url = request.url_root.rstrip('/')
+        yield f"event: endpoint\ndata: {root_url}/messages\n\n"
         
-        # Garde la connexion ouverte avec un ping
         while True:
-            time.sleep(20)
+            time.sleep(15)
             yield ": ping\n\n"
             
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/messages', methods=['POST'])
 def messages():
-    data = request.json
-    method = data.get("method")
-    msg_id = data.get("id")
+    body = request.json
+    method = body.get("method")
+    msg_id = body.get("id")
 
-    # Étape 1 : Initialisation
+    # Log pour voir ce que Mistral envoie (visible dans les logs Render)
+    print(f"Méthode reçue : {method}")
+
     if method == "initialize":
         return jsonify({
             "jsonrpc": "2.0",
@@ -36,11 +43,10 @@ def messages():
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "wolfram", "version": "1.0.0"}
+                "serverInfo": {"name": "wolfram-mcp", "version": "1.0.0"}
             }
         })
-    
-    # Étape 2 : Liste des outils (demandée juste après l'initialisation)
+
     if method == "tools/list":
         return jsonify({
             "jsonrpc": "2.0",
@@ -59,14 +65,11 @@ def messages():
                 }]
             }
         })
-    
-    # Étape 3 : Exécution de l'outil
+
     if method == "tools/call":
-        import requests
-        query = data.get("params", {}).get("arguments", {}).get("query")
-        appid = os.environ.get("WOLFRAM_API_KEY")
-        
-        r = requests.get(f"https://www.wolframalpha.com/api/v1/llm-api?input={query}&appid={appid}")
+        query = body.get("params", {}).get("arguments", {}).get("query")
+        # Appel à Wolfram
+        r = requests.get(f"https://www.wolframalpha.com/api/v1/llm-api?input={query}&appid={WOLFRAM_API_KEY}")
         return jsonify({
             "jsonrpc": "2.0",
             "id": msg_id,
