@@ -33,20 +33,25 @@ def messages():
     method = body.get("method")
     msg_id = body.get("id")
 
-    # Log pour voir ce que Mistral envoie (visible dans les logs Render)
-    print(f"Méthode reçue : {method}")
-
+    # 1. INITIALIZE (Mistral vérifie les capacités ici)
     if method == "initialize":
         return jsonify({
             "jsonrpc": "2.0",
             "id": msg_id,
             "result": {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "wolfram-mcp", "version": "1.0.0"}
+                "capabilities": {
+                    "tools": {},
+                    "logging": {}
+                },
+                "serverInfo": {
+                    "name": "wolfram-mcp",
+                    "version": "1.0.0"
+                }
             }
         })
 
+    # 2. TOOLS LIST (C'est ici que Mistral valide le connecteur)
     if method == "tools/list":
         return jsonify({
             "jsonrpc": "2.0",
@@ -54,11 +59,14 @@ def messages():
             "result": {
                 "tools": [{
                     "name": "query_wolfram",
-                    "description": "Calculs mathématiques et données Wolfram Alpha",
+                    "description": "Interroge Wolfram Alpha pour des calculs, de la physique ou des données.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string", "description": "La question en anglais"}
+                            "query": {
+                                "type": "string",
+                                "description": "La question ou le calcul"
+                            }
                         },
                         "required": ["query"]
                     }
@@ -66,19 +74,11 @@ def messages():
             }
         })
 
-    if method == "tools/call":
-        query = body.get("params", {}).get("arguments", {}).get("query")
-        # Appel à Wolfram
-        r = requests.get(f"https://www.wolframalpha.com/api/v1/llm-api?input={query}&appid={WOLFRAM_API_KEY}")
-        return jsonify({
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {
-                "content": [{"type": "text", "text": r.text}]
-            }
-        })
+    # 3. INITIALIZED (Notification de fin de handshake)
+    if method == "notifications/initialized":
+        return "", 204
 
-    return jsonify({"jsonrpc": "2.0", "id": msg_id, "result": {}})
+    return jsonify({"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32601, "message": "Method not found"}})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
