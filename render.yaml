@@ -3,7 +3,7 @@ services:
     name: wolfram-mcp-server
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --worker-class gthread --threads 4 --timeout 60 server:app
+    startCommand: gunicorn -w 1 --threads 100 --worker-class gthread server:app
     envVars:
       - key: WOLFRAM_API_KEY
         sync: false  # Gardez cette valeur secrète
